@@ -13,7 +13,8 @@ from Crypto.Util.Padding import pad
 from mutagen.easyid3 import ID3
 from wasmer import Store, Module, Instance, Uint8Array, Int32Array, engine
 from wasmer_compiler_cranelift import Compiler
-
+import mutagen
+from pydub import AudioSegment
 
 class XMInfo:
     def __init__(self):
@@ -132,7 +133,7 @@ def xm_decrypt(raw_data):
 
 
 def find_ext(data):
-    exts = ["m4a", "mp3", "flac", "wav"]
+    exts = ["m4a", "mp3", "flac", "wav", "aac"]
     value = magic.from_buffer(data).lower()
     for ext in exts:
         if ext in value:
@@ -144,10 +145,32 @@ def decrypt_xm_file(from_file, output_path='./output'):
     print(f"正在解密{from_file}")
     data = read_file(from_file)
     info, audio_data = xm_decrypt(data)
-    output = f"{output_path}/{replace_invalid_chars(info.album)}/{replace_invalid_chars(info.title)}.{find_ext(audio_data[:0xff])}"
+    file_name = os.path.basename(from_file).rstrip('.xm')
+    typest = find_ext(audio_data[:0xff])
+    # file_name与info.title相比之下, 更信任file_name
+    output = f"{output_path}/{replace_invalid_chars(info.album)}/{file_name}.{typest}"
     if not os.path.exists(f"{output_path}/{replace_invalid_chars(info.album)}"):
         os.makedirs(f"{output_path}/{replace_invalid_chars(info.album)}")
     buffer = io.BytesIO(audio_data)
+
+    if(typest=="aac"):
+        # 将解密后的音频数据转换为 pydub 的 AudioSegment 对象
+        audio_segment = AudioSegment.from_file(buffer)
+        
+        # 保存为mp3文件格式
+        output = f"{output_path}/{replace_invalid_chars(info.album)}/{file_name}.mp3"
+        audio_segment.export(output, format="mp3")
+        
+        # 设置元数据
+        tags = mutagen.File(output, easy=True)
+        tags["title"] = info.title
+        tags["album"] = info.album
+        tags["artist"] = info.artist
+        tags.save()
+        
+        print(f"解密成功，文件保存至 {output}！")
+        return
+
     tags = mutagen.File(buffer, easy=True)
     tags["title"] = info.title
     tags["album"] = info.album
@@ -157,7 +180,7 @@ def decrypt_xm_file(from_file, output_path='./output'):
     with open(output, "wb") as f:
         buffer.seek(0)
         f.write(buffer.read())
-    print(f"解密成功，文件保存至{output}！")
+    print(f"解密成功，文件保存至{output}!")
 
 
 def replace_invalid_chars(name):
